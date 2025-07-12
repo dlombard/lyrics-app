@@ -1,0 +1,134 @@
+import 'dart:async';
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+
+class DatabaseHelper {
+  static const String _databaseName = 'lyrics_app.db';
+  static const int _databaseVersion = 1;
+
+  static const String tableLyrics = 'lyrics';
+  static const String tableSections = 'sections';
+  static const String tableArrangements = 'arrangements';
+  static const String tablePresentationSettings = 'presentation_settings';
+
+  Database? _database;
+
+  Future<Database> get database async {
+    _database ??= await _initDatabase();
+    return _database!;
+  }
+
+  Future<Database> _initDatabase() async {
+    // Initialize database factory for web
+    if (kIsWeb) {
+      databaseFactory = databaseFactoryFfiWeb;
+    }
+    
+    final documentsDirectory = await getDatabasesPath();
+    final path = join(documentsDirectory, _databaseName);
+    
+    return await openDatabase(
+      path,
+      version: _databaseVersion,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+    );
+  }
+
+  Future<void> _onCreate(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE $tableLyrics (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        artist TEXT,
+        album TEXT,
+        default_arrangement_id TEXT,
+        tags TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        is_shared INTEGER DEFAULT 0,
+        shared_by_id TEXT,
+        original_id TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE $tableSections (
+        id TEXT PRIMARY KEY,
+        lyric_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        type INTEGER NOT NULL,
+        custom_type TEXT,
+        section_order INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (lyric_id) REFERENCES $tableLyrics (id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE $tableArrangements (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        lyric_id TEXT NOT NULL,
+        section_order TEXT NOT NULL,
+        is_default INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (lyric_id) REFERENCES $tableLyrics (id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE $tablePresentationSettings (
+        id INTEGER PRIMARY KEY,
+        lines_per_screen INTEGER NOT NULL DEFAULT 2,
+        font_size REAL NOT NULL DEFAULT 18.0,
+        font_family TEXT NOT NULL DEFAULT 'Roboto',
+        auto_scroll INTEGER DEFAULT 0,
+        auto_scroll_speed INTEGER NOT NULL DEFAULT 5,
+        dark_mode INTEGER DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_sections_lyric_id ON $tableSections (lyric_id)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_arrangements_lyric_id ON $tableArrangements (lyric_id)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_lyrics_title ON $tableLyrics (title)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_lyrics_artist ON $tableLyrics (artist)
+    ''');
+
+    await db.insert(tablePresentationSettings, {
+      'id': 1,
+      'lines_per_screen': 2,
+      'font_size': 18.0,
+      'font_family': 'Roboto',
+      'auto_scroll': 0,
+      'auto_scroll_speed': 5,
+      'dark_mode': 0,
+    });
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+  }
+
+  Future<void> close() async {
+    final db = _database;
+    if (db != null) {
+      await db.close();
+      _database = null;
+    }
+  }
+}

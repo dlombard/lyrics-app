@@ -1,0 +1,229 @@
+import 'dart:convert';
+import 'package:sqflite/sqflite.dart';
+import 'database_helper.dart';
+import '../../domain/entities/lyric.dart';
+import '../../domain/entities/lyric_section.dart';
+import '../../domain/entities/arrangement.dart';
+import '../../domain/entities/section_type.dart';
+import 'lyrics_data_source_interface.dart';
+
+class LyricsLocalDataSourceImpl implements LyricsDataSource {
+  final DatabaseHelper databaseHelper;
+
+  LyricsLocalDataSourceImpl({required this.databaseHelper});
+
+  @override
+  Future<List<Lyric>> getAllLyrics() async {
+    final db = await databaseHelper.database;
+    final lyricMaps = await db.query(DatabaseHelper.tableLyrics, orderBy: 'updated_at DESC');
+    
+    final lyrics = <Lyric>[];
+    for (final lyricMap in lyricMaps) {
+      final sections = await _getSectionsByLyricId(lyricMap['id'] as String);
+      final arrangements = await _getArrangementsByLyricId(lyricMap['id'] as String);
+      lyrics.add(_lyricFromDatabase(lyricMap, sections, arrangements));
+    }
+    
+    return lyrics;
+  }
+
+  @override
+  Future<Lyric?> getLyricById(String id) async {
+    final db = await databaseHelper.database;
+    final lyricMaps = await db.query(
+      DatabaseHelper.tableLyrics,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    
+    if (lyricMaps.isEmpty) return null;
+    
+    final sections = await _getSectionsByLyricId(id);
+    final arrangements = await _getArrangementsByLyricId(id);
+    
+    return _lyricFromDatabase(lyricMaps.first, sections, arrangements);
+  }
+
+  @override
+  Future<Lyric> createLyric(Lyric lyric) async {
+    final db = await databaseHelper.database;
+    
+    await db.transaction((txn) async {
+      await txn.insert(DatabaseHelper.tableLyrics, _lyricToDatabase(lyric));
+      
+      for (final section in lyric.sections) {
+        await txn.insert(DatabaseHelper.tableSections, {
+          ..._sectionToDatabase(section),
+          'lyric_id': lyric.id,
+        });
+      }
+      
+      for (final arrangement in lyric.arrangements) {
+        await txn.insert(DatabaseHelper.tableArrangements, _arrangementToDatabase(arrangement));
+      }
+    });
+    
+    return lyric;
+  }
+
+  @override
+  Future<Lyric> updateLyric(Lyric lyric) async {
+    final db = await databaseHelper.database;
+    
+    await db.update(
+      DatabaseHelper.tableLyrics,
+      _lyricToDatabase(lyric),
+      where: 'id = ?',
+      whereArgs: [lyric.id],
+    );
+    
+    return lyric;
+  }
+
+  @override
+  Future<void> deleteLyric(String id) async {
+    final db = await databaseHelper.database;
+    await db.delete(
+      DatabaseHelper.tableLyrics,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  @override
+  Future<List<Lyric>> searchLyrics(String query) async {
+    final db = await databaseHelper.database;
+    final searchPattern = '%$query%';
+    
+    final lyricMaps = await db.query(
+      DatabaseHelper.tableLyrics,
+      where: 'title LIKE ? OR artist LIKE ? OR album LIKE ?',
+      whereArgs: [searchPattern, searchPattern, searchPattern],
+      orderBy: 'updated_at DESC',
+    );
+    
+    final lyrics = <Lyric>[];
+    for (final lyricMap in lyricMaps) {
+      final sections = await _getSectionsByLyricId(lyricMap['id'] as String);
+      final arrangements = await _getArrangementsByLyricId(lyricMap['id'] as String);
+      lyrics.add(_lyricFromDatabase(lyricMap, sections, arrangements));
+    }
+    
+    return lyrics;
+  }
+
+  Future<List<LyricSection>> _getSectionsByLyricId(String lyricId) async {
+    final db = await databaseHelper.database;
+    final sectionMaps = await db.query(
+      DatabaseHelper.tableSections,
+      where: 'lyric_id = ?',
+      whereArgs: [lyricId],
+      orderBy: 'section_order ASC',
+    );
+    
+    return sectionMaps.map((map) => _sectionFromDatabase(map)).toList();
+  }
+
+  Future<List<Arrangement>> _getArrangementsByLyricId(String lyricId) async {
+    final db = await databaseHelper.database;
+    final arrangementMaps = await db.query(
+      DatabaseHelper.tableArrangements,
+      where: 'lyric_id = ?',
+      whereArgs: [lyricId],
+      orderBy: 'is_default DESC, created_at ASC',
+    );
+    
+    return arrangementMaps.map((map) => _arrangementFromDatabase(map)).toList();
+  }
+
+  // Database conversion methods
+  Lyric _lyricFromDatabase(
+    Map<String, dynamic> map,
+    List<LyricSection> sections,
+    List<Arrangement> arrangements,
+  ) {
+    return Lyric(
+      id: map['id'] as String,
+      title: map['title'] as String,
+      artist: map['artist'] as String?,
+      album: map['album'] as String?,
+      sections: sections,
+      arrangements: arrangements,
+      defaultArrangementId: map['default_arrangement_id'] as String?,
+      tags: map['tags'] != null 
+          ? List<String>.from(jsonDecode(map['tags'] as String))
+          : [],
+      createdAt: DateTime.parse(map['created_at'] as String),
+      updatedAt: DateTime.parse(map['updated_at'] as String),
+      isShared: (map['is_shared'] as int) == 1,
+      sharedById: map['shared_by_id'] as String?,
+      originalId: map['original_id'] as String?,
+    );
+  }
+
+  Map<String, dynamic> _lyricToDatabase(Lyric lyric) {
+    return {
+      'id': lyric.id,
+      'title': lyric.title,
+      'artist': lyric.artist,
+      'album': lyric.album,
+      'default_arrangement_id': lyric.defaultArrangementId,
+      'tags': jsonEncode(lyric.tags),
+      'created_at': lyric.createdAt.toIso8601String(),
+      'updated_at': lyric.updatedAt.toIso8601String(),
+      'is_shared': lyric.isShared ? 1 : 0,
+      'shared_by_id': lyric.sharedById,
+      'original_id': lyric.originalId,
+    };
+  }
+
+  LyricSection _sectionFromDatabase(Map<String, dynamic> map) {
+    return LyricSection(
+      id: map['id'] as String,
+      title: map['title'] as String,
+      content: map['content'] as String,
+      type: SectionType.values[map['type'] as int],
+      customType: map['custom_type'] as String?,
+      order: map['section_order'] as int,
+      createdAt: DateTime.parse(map['created_at'] as String),
+      updatedAt: DateTime.parse(map['updated_at'] as String),
+    );
+  }
+
+  Map<String, dynamic> _sectionToDatabase(LyricSection section) {
+    return {
+      'id': section.id,
+      'title': section.title,
+      'content': section.content,
+      'type': section.type.index,
+      'custom_type': section.customType,
+      'section_order': section.order,
+      'created_at': section.createdAt.toIso8601String(),
+      'updated_at': section.updatedAt.toIso8601String(),
+    };
+  }
+
+  Arrangement _arrangementFromDatabase(Map<String, dynamic> map) {
+    return Arrangement(
+      id: map['id'] as String,
+      name: map['name'] as String,
+      lyricId: map['lyric_id'] as String,
+      sectionOrder: List<String>.from(jsonDecode(map['section_order'] as String)),
+      isDefault: (map['is_default'] as int) == 1,
+      createdAt: DateTime.parse(map['created_at'] as String),
+      updatedAt: DateTime.parse(map['updated_at'] as String),
+    );
+  }
+
+  Map<String, dynamic> _arrangementToDatabase(Arrangement arrangement) {
+    return {
+      'id': arrangement.id,
+      'name': arrangement.name,
+      'lyric_id': arrangement.lyricId,
+      'section_order': jsonEncode(arrangement.sectionOrder),
+      'is_default': arrangement.isDefault ? 1 : 0,
+      'created_at': arrangement.createdAt.toIso8601String(),
+      'updated_at': arrangement.updatedAt.toIso8601String(),
+    };
+  }
+}
