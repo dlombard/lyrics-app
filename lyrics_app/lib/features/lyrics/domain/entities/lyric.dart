@@ -1,20 +1,37 @@
 import 'package:equatable/equatable.dart';
+import 'package:hive/hive.dart';
 import 'lyric_section.dart';
 import 'arrangement.dart';
 
+part 'lyric.g.dart';
+
+@HiveType(typeId: 3)
 class Lyric extends Equatable {
+  @HiveField(0)
   final String id;
+  @HiveField(1)
   final String title;
+  @HiveField(2)
   final String? artist;
+  @HiveField(3)
   final String? album;
+  @HiveField(4)
   final List<LyricSection> sections;
+  @HiveField(5)
   final List<Arrangement> arrangements;
+  @HiveField(6)
   final String? defaultArrangementId;
+  @HiveField(7)
   final List<String> tags;
+  @HiveField(8)
   final DateTime createdAt;
+  @HiveField(9)
   final DateTime updatedAt;
+  @HiveField(10)
   final bool isShared;
+  @HiveField(11)
   final String? sharedById;
+  @HiveField(12)
   final String? originalId;
 
   const Lyric({
