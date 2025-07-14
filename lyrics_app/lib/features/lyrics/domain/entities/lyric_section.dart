@@ -1,14 +1,26 @@
 import 'package:equatable/equatable.dart';
+import 'package:hive/hive.dart';
 import 'section_type.dart';
 
+part 'lyric_section.g.dart';
+
+@HiveType(typeId: 1)
 class LyricSection extends Equatable {
+  @HiveField(0)
   final String id;
+  @HiveField(1)
   final String title;
+  @HiveField(2)
   final String content;
+  @HiveField(3)
   final SectionType type;
+  @HiveField(4)
   final String? customType;
+  @HiveField(5)
   final int order;
+  @HiveField(6)
   final DateTime createdAt;
+  @HiveField(7)
   final DateTime updatedAt;
 
   const LyricSection({

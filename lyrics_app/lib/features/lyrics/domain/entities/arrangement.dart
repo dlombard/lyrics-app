@@ -1,12 +1,23 @@
 import 'package:equatable/equatable.dart';
+import 'package:hive/hive.dart';
 
+part 'arrangement.g.dart';
+
+@HiveType(typeId: 2)
 class Arrangement extends Equatable {
+  @HiveField(0)
   final String id;
+  @HiveField(1)
   final String name;
+  @HiveField(2)
   final String lyricId;
+  @HiveField(3)
   final List<String> sectionOrder;
+  @HiveField(4)
   final bool isDefault;
+  @HiveField(5)
   final DateTime createdAt;
+  @HiveField(6)
   final DateTime updatedAt;
 
   const Arrangement({
